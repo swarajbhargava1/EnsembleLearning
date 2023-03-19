@@ -1,5 +1,6 @@
 import numpy as np
 from collections import Counter
+from graphviz import Digraph
 
 class Node:
     '''
@@ -173,3 +174,85 @@ class DecisionTreeClassifier:
             return self._traverse_tree(x, node.left_node)
 
         return self._traverse_tree(x, node.right_node)
+
+
+class DecisionTreeRegressor:
+    def __init__(self, max_depth=5, min_samples_split=2):
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.tree = None
+
+    def mse(self, y):
+        return np.mean((y - np.mean(y)) ** 2)
+
+    def split(self, X, y, split_feature, split_value):
+        left_idx = X[:, split_feature] < split_value
+        right_idx = ~left_idx
+        return X[left_idx], y[left_idx], X[right_idx], y[right_idx]
+
+    def best_split(self, X, y):
+        best_mse = np.inf
+        best_feature = None
+        best_value = None
+        n_samples, n_features = X.shape
+
+        for feature in range(n_features):
+            feature_values = np.sort(np.unique(X[:, feature]))
+            for i in range(len(feature_values) - 1):
+                split_value = (feature_values[i] + feature_values[i + 1]) / 2
+                X_left, y_left, X_right, y_right = self.split(X, y, feature, split_value)
+
+                if len(X_left) < self.min_samples_split or len(X_right) < self.min_samples_split:
+                    continue
+
+                mse_left = self.mse(y_left)
+                mse_right = self.mse(y_right)
+                mse_split = (len(y_left) * mse_left + len(y_right) * mse_right) / n_samples
+
+                if mse_split < best_mse:
+                    best_mse = mse_split
+                    best_feature = feature
+                    best_value = split_value
+
+        return best_feature, best_value
+
+    def fit(self, X, y):
+        self.tree = self._build_tree(X, y)
+
+    def _build_tree(self, X, y, depth=0):
+        if depth == self.max_depth or len(X) < self.min_samples_split or np.all(y == y[0]):
+            return np.mean(y)
+
+        best_feature, best_value = self.best_split(X, y)
+
+        if best_feature is None:
+            return np.mean(y)
+
+        X_left, y_left, X_right, y_right = self.split(X, y, best_feature, best_value)
+        tree = {}
+        tree["split_feature"] = best_feature
+        tree["split_value"] = best_value
+        tree["left"] = self._build_tree(X_left, y_left, depth + 1)
+        tree["right"] = self._build_tree(X_right, y_right, depth + 1)
+
+        return tree
+
+    def _predict_sample(self, tree, x):
+        if isinstance(tree, float):
+            return tree
+
+        feature = tree["split_feature"]
+        value = tree["split_value"]
+
+        if x[feature] < value:
+            return self._predict_sample(tree["left"], x)
+        else:
+            return self._predict_sample(tree["right"], x)
+
+    def predict(self, X):
+        y_pred = []
+        for x in X:
+            y_pred.append(self._predict_sample(self.tree, x))
+        return np.array(y_pred)
+
+
